@@ -265,36 +265,56 @@ void NimBLEServer::advertiseOnDisconnect(bool aod) {
 
 /**
  * @brief Inject the provided passkey into the Security Manager
- * @param [in] connInfo A reference to a NimBLEConnInfo instance with information
- * about the peer connection parameters.
+ * @param [in] address Address to the peer connection
  * @param [in] pin The 6-digit pin to inject
  */
-void NimBLEServer::injectPasskey(NimBLEConnInfo& connInfo, uint32_t pin) {
+void NimBLEServer::injectPassKey(const NimBLEAddress& address, uint32_t pin) {
+    NimBLEConnInfo peerInfo;
+    ble_addr_t peerAddr;
     int rc = 0;
     struct ble_sm_io pkey = {0,0};
 
     pkey.action = BLE_SM_IOACT_INPUT;
     pkey.passkey = pin;
 
-    rc = ble_sm_inject_io(connInfo.getConnHandle(), &pkey);
+    peerAddr.type = address.getType();
+    memcpy(peerAddr.val, address.getNative(), 6);
+
+    rc = ble_gap_conn_find_by_addr(&peerAddr, &peerInfo.m_desc);
+    if (rc != 0) {
+        NIMBLE_LOGW(LOG_TAG, "BLE_SM_IOACT_INPUT; ble_gap_conn_find_by_addr result: %d", rc);
+        return;
+    }
+
+    rc = ble_sm_inject_io(peerInfo.getConnHandle(), &pkey);
 
     NIMBLE_LOGD(LOG_TAG, "BLE_SM_IOACT_INPUT; ble_sm_inject_io result: %d", rc);
 }
 
 /**
  * @brief Inject the provided numeric comparison response into the Security Manager
- * @param [in] connInfo A reference to a NimBLEConnInfo instance with information
- * about the peer connection parameters.
+ * @param [in] address Address to the peer connection
  * @param [in] accept Whether the user confirmed or declined the comparison
  */
-void NimBLEServer::injectConfirmPIN(NimBLEConnInfo& connInfo, bool accept) {
+void NimBLEServer::injectConfirmPIN(const NimBLEAddress& address, bool accept) {
+    NimBLEConnInfo peerInfo;
+    ble_addr_t peerAddr;
     int rc = 0;
     struct ble_sm_io pkey = {0,0};
 
     pkey.action = BLE_SM_IOACT_NUMCMP;
     pkey.numcmp_accept = accept;
 
-    rc = ble_sm_inject_io(connInfo.getConnHandle, &pkey);
+    peerAddr.type = address.getType();
+    memcpy(peerAddr.val, address.getNative(), 6);
+
+    rc = ble_gap_conn_find_by_addr(&peerAddr, &peerInfo.m_desc);
+    if (rc != 0) {
+        NIMBLE_LOGW(LOG_TAG, "BLE_SM_IOACT_NUMCMP; ble_gap_conn_find_by_addr result: %d", rc);
+        return;
+    }
+
+    rc = ble_sm_inject_io(peerInfo.getConnHandle(), &pkey);
     NIMBLE_LOGD(LOG_TAG, "BLE_SM_IOACT_NUMCMP; ble_sm_inject_io result: %d", rc);
 }
 
@@ -592,14 +612,15 @@ int NimBLEServer::handleGapEvent(struct ble_gap_event *event, void *arg) {
                 NIMBLE_LOGD(LOG_TAG, "BLE_SM_IOACT_DISP; ble_sm_inject_io result: %d", rc);
 
             } else if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
+                NimBLEConnInfo peerInfo;
                 NIMBLE_LOGD(LOG_TAG, "Passkey on device's display: %" PRIu32, event->passkey.params.numcmp);
 
                 rc = ble_gap_conn_find(event->enc_change.conn_handle, &peerInfo.m_desc);
                 if(rc != 0) {
-                    return BLE_ATT_ERR_INVALID_HANDLE
+                    return BLE_ATT_ERR_INVALID_HANDLE;
                 }
 
-                server->m_pServerCallbacks->onConfirmPIN(peerInfo, event->passkey.params.numcmp);
+                server->m_pServerCallbacks->onConfirmPIN(peerInfo.getAddress(), event->passkey.params.numcmp);
             //TODO: Handle out of band pairing
             } else if (event->passkey.params.action == BLE_SM_IOACT_OOB) {
                 static uint8_t tem_oob[16] = {0};
@@ -611,13 +632,14 @@ int NimBLEServer::handleGapEvent(struct ble_gap_event *event, void *arg) {
                 NIMBLE_LOGD(LOG_TAG, "BLE_SM_IOACT_OOB; ble_sm_inject_io result: %d", rc);
             //////////////////////////////////
             } else if (event->passkey.params.action == BLE_SM_IOACT_INPUT) {
+                NimBLEConnInfo peerInfo;
                 NIMBLE_LOGD(LOG_TAG, "Enter the passkey");
                 rc = ble_gap_conn_find(event->enc_change.conn_handle, &peerInfo.m_desc);
                 if(rc != 0) {
-                    return BLE_ATT_ERR_INVALID_HANDLE
+                    return BLE_ATT_ERR_INVALID_HANDLE;
                 }
 
-                server->m_pServerCallbacks->onPassKeyEntry(peerInfo);
+                server->m_pServerCallbacks->onPassKeyEntry(peerInfo.getAddress());
             } else if (event->passkey.params.action == BLE_SM_IOACT_NONE) {
                 NIMBLE_LOGD(LOG_TAG, "No passkey action required");
             }
@@ -924,9 +946,9 @@ uint32_t NimBLEServerCallbacks::onPassKeyDisplay(){
     return 123456;
 } //onPassKeyDisplay
 
-void NimBLEServerCallbacks::onPassKeyEntry(NimBLEConnInfo& connInfo){
+void NimBLEServerCallbacks::onPassKeyEntry(const NimBLEAddress& address){
     NIMBLE_LOGD("NimBLEServerCallbacks", "onPassKeyEntry: default: 123456");
-    NimBLEDevice::getServer()->injectPasskey(connInfo, 123456);
+    NimBLEDevice::getServer()->injectPassKey(address, 123456);
 } //onPassKeyEntry
 
 /*
@@ -939,9 +961,9 @@ void NimBLEServerCallbacks::onAuthenticationComplete(ble_gap_conn_desc*){
     NIMBLE_LOGD("NimBLEServerCallbacks", "onAuthenticationComplete: default");
 } // onAuthenticationComplete
 
-voic NimBLEServerCallbacks::onConfirmPIN(NimBLEConnInfo& connInfo, uint32_t pin){
+void NimBLEServerCallbacks::onConfirmPIN(const NimBLEAddress& address, uint32_t pin){
     NIMBLE_LOGD("NimBLEServerCallbacks", "onConfirmPIN: default: true");
-    NimBLEDevice::getServer()->injectPIN(connInfo, true);
+    NimBLEDevice::getServer()->injectConfirmPIN(address, true);
 } // onConfirmPIN
 
 #endif /* CONFIG_BT_ENABLED && CONFIG_BT_NIMBLE_ROLE_PERIPHERAL */

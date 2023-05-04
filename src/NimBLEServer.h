@@ -82,8 +82,8 @@ public:
 #if !CONFIG_BT_NIMBLE_EXT_ADV || defined(_DOXYGEN_)
     void                   advertiseOnDisconnect(bool);
 #endif
-    void                   injectPasskey(NimBLEConnInfo& connInfo, uint32_t pin);
-    void                   injectConfirmPIN(NimBLEConnInfo& connInfo, bool accept);
+    void                   injectPassKey(const NimBLEAddress& address, uint32_t pin);
+    void                   injectConfirmPIN(const NimBLEAddress& address, bool accept);
 
 private:
     NimBLEServer();
@@ -175,10 +175,18 @@ public:
 
     /**
      * @brief Called when a client requests a passkey for pairing (input).
-     * @param [in] connInfo A reference to a NimBLEConnInfo instance with information
-     * about the peer connection parameters.
+     * @param [in] address The address to the peer device making the pairing attempt.
+     * Should be passed back to NimBLEServer::injectPassKey
      */
-    virtual void onPasskeyEntry(NimBLEConnInfo& connInfo);
+    virtual void onPassKeyEntry(const NimBLEAddress& address);
+
+    /**
+     * @brief Called when using numeric comparision for pairing.
+     * @param [in] address The address to the peer device making the pairing attempt.
+     * Should be passed back to NimBLEServer::injectConfirmPIN
+     * @param [in] pin The pin to compare with the client.
+     */
+    virtual void onConfirmPIN(const NimBLEAddress& address, uint32_t pin);
 
     //virtual void onPassKeyNotify(uint32_t pass_key);
     //virtual bool onSecurityRequest();
@@ -189,14 +197,6 @@ public:
      * This can be used to check the status of the connection encryption/pairing.
      */
     virtual void onAuthenticationComplete(ble_gap_conn_desc* desc);
-
-    /**
-     * @brief Called when using numeric comparision for pairing.
-     * @param [in] connInfo A reference to a NimBLEConnInfo instance with information
-     * about the peer connection parameters.
-     * @param [in] pin The pin to compare with the client.
-     */
-    virtual void onConfirmPIN(NimBLEConnInfo& connInfo, uint32_t pin);
 }; // NimBLEServerCallbacks
 
 #endif /* CONFIG_BT_ENABLED && CONFIG_BT_NIMBLE_ROLE_PERIPHERAL */
