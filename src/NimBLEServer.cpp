@@ -615,7 +615,7 @@ int NimBLEServer::handleGapEvent(struct ble_gap_event *event, void *arg) {
                 NimBLEConnInfo peerInfo;
                 NIMBLE_LOGD(LOG_TAG, "Passkey on device's display: %" PRIu32, event->passkey.params.numcmp);
 
-                rc = ble_gap_conn_find(event->enc_change.conn_handle, &peerInfo.m_desc);
+                rc = ble_gap_conn_find(event->passkey.conn_handle, &peerInfo.m_desc);
                 if(rc != 0) {
                     return BLE_ATT_ERR_INVALID_HANDLE;
                 }
@@ -634,7 +634,7 @@ int NimBLEServer::handleGapEvent(struct ble_gap_event *event, void *arg) {
             } else if (event->passkey.params.action == BLE_SM_IOACT_INPUT) {
                 NimBLEConnInfo peerInfo;
                 NIMBLE_LOGD(LOG_TAG, "Enter the passkey");
-                rc = ble_gap_conn_find(event->enc_change.conn_handle, &peerInfo.m_desc);
+                rc = ble_gap_conn_find(event->passkey.conn_handle, &peerInfo.m_desc);
                 if(rc != 0) {
                     return BLE_ATT_ERR_INVALID_HANDLE;
                 }
