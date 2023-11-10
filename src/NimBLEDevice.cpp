@@ -838,6 +838,78 @@ void NimBLEDevice::host_task(void *param)
     nimble_port_freertos_deinit();
 } // host_task
 
+/**
+ * @brief Patched version of ble_gap_unpair_oldest_peer
+ *
+ * This is a copy of ble_gap_unpair_oldest_peer but it correctly calls
+ * ble_store_util_bonded_peers with the max possible values, which means
+ * that function will not return an error due to "no memory"
+ */
+static int custom_gap_unpair_oldest_peer(void)
+{
+#if NIMBLE_BLE_SM
+    ble_addr_t oldest_peer_id_addr[MYNEWT_VAL(BLE_STORE_MAX_BONDS)];
+    int num_peers;
+    int rc;
+
+    if (!ble_hs_is_enabled()) {
+       return BLE_HS_EDISABLED;
+    }
+
+    rc = ble_store_util_bonded_peers(
+            oldest_peer_id_addr, &num_peers,
+            std::size(oldest_peer_id_addr));
+    if (rc != 0) {
+        return rc;
+    }
+
+    if (num_peers == 0) {
+        return BLE_HS_ENOENT;
+    }
+
+    rc = ble_gap_unpair(&oldest_peer_id_addr[0]);
+    if (rc != 0) {
+        return rc;
+    }
+
+    return 0;
+#else
+    return BLE_HS_ENOTSUP;
+#endif
+}
+
+/**
+ * @brief Custom handler for store status callback
+ *
+ * There is a bug in ble_gap_unpair_oldest_peer that causes ble_store_util_status_rr to not
+ * work properly. This is a band-aid to fix that.
+ */
+static int custom_store_util_status_rr(struct ble_store_status_event *event, void *arg) {
+    switch (event->event_code) {
+        case BLE_STORE_EVENT_OVERFLOW:
+            switch (event->overflow.obj_type) {
+                case BLE_STORE_OBJ_TYPE_OUR_SEC:
+                case BLE_STORE_OBJ_TYPE_PEER_SEC:
+                    return custom_gap_unpair_oldest_peer(); // This is the only line we changed
+                case BLE_STORE_OBJ_TYPE_CCCD:
+                    /* Try unpairing oldest peer except current peer */
+                    return ble_gap_unpair_oldest_except(&event->overflow.value->cccd.peer_addr);
+
+                default:
+                    return BLE_HS_EUNKNOWN;
+            }
+
+        case BLE_STORE_EVENT_FULL:
+            /* Just proceed with the operation.  If it results in an overflow,
+            * we'll delete a record when the overflow occurs.
+            */
+            return 0;
+
+        default:
+            return BLE_HS_EUNKNOWN;
+    }
+}
+
 
 /**
  * @brief Initialize the %BLE environment.
@@ -896,7 +968,7 @@ void NimBLEDevice::init(const std::string &deviceName) {
         ble_hs_cfg.sm_our_key_dist = 1;
         ble_hs_cfg.sm_their_key_dist = 3;
 
-        ble_hs_cfg.store_status_cb = ble_store_util_status_rr; /*TODO: Implement handler for this*/
+        ble_hs_cfg.store_status_cb = custom_store_util_status_rr; /*TODO: Implement handler for this*/
 
         // Set the device name.
         rc = ble_svc_gap_device_name_set(deviceName.c_str());
